@@ -1,0 +1,267 @@
+// ==UserScript==
+// @name        Extrair Dados e Adicionar à Fila
+// @namespace   http://tampermonkey.net/
+// @version     5.6
+// @description Adiciona botões para extrair o código do pedido, ver e apagar o primeiro da fila, e exportar os dados.
+// @author      MatheusGarcia
+// @match       https://[DOMINIO-DO-SITE-ITSM].com/*
+// @match       https://[DOMINIO-DO-EDITOR].com/*
+// @icon        https://www.google.com/s2/favicons?sz=64&domain=google.com
+// @grant       GM_getValue
+// @grant       GM_setValue
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    console.log('Script Tampermonkey: Monitorando a página...');
+
+    const urlITSM = 'https://[DOMINIO-DO-SITE-ITSM].com/';
+    const urlEditor = 'https://[DOMINIO-DO-EDITOR].com/';
+    const filaKey = 'filaPedidos';
+
+    let btnAdicionar;
+
+    function criarBotoes() {
+        if (document.getElementById('gm-adicionar-fila-btn-container')) {
+            console.log('Os botões já existem, não é necessário criar novamente.');
+            return;
+        }
+
+        console.log('Criando botões...');
+
+        const container = document.createElement('div');
+        container.id = 'gm-adicionar-fila-btn-container';
+        container.style.position = 'fixed';
+        container.style.top = '40%';
+        container.style.right = '40px';
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '10px';
+        container.style.zIndex = '9999';
+
+        btnAdicionar = document.createElement('button');
+        btnAdicionar.id = 'gm-adicionar-fila-btn';
+        btnAdicionar.textContent = 'Adicionar à Fila';
+        btnAdicionar.style.cssText = 'padding: 8px 12px; background-color: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer;';
+
+        const btnVerFila = document.createElement('button');
+        btnVerFila.id = 'gm-ver-fila-btn';
+        btnVerFila.textContent = 'Ver Fila';
+        btnVerFila.style.cssText = 'padding: 8px 12px; background-color: #FFC107; color: black; border: none; border-radius: 5px; cursor: pointer;';
+
+        const btnApagarFila = document.createElement('button');
+        btnApagarFila.id = 'gm-apagar-fila-btn';
+        btnApagarFila.textContent = 'Remover Próximo';
+        btnApagarFila.style.cssText = 'padding: 8px 12px; background-color: #F44336; color: white; border: none; border-radius: 5px; cursor: pointer;';
+
+        const btnExportarInfo = document.createElement('button');
+        btnExportarInfo.id = 'gm-exportar-info-btn';
+        btnExportarInfo.textContent = 'Exportar Info';
+        btnExportarInfo.style.cssText = 'padding: 8px 12px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;';
+
+        const currentUrl = window.location.href;
+        container.appendChild(btnVerFila);
+        container.appendChild(btnApagarFila);
+
+        if (currentUrl.startsWith(urlITSM)) {
+            container.appendChild(btnAdicionar);
+            btnAdicionar.disabled = true;
+            btnAdicionar.textContent = 'Aguardando dados...';
+        } else if (currentUrl.startsWith(urlEditor)) {
+            container.appendChild(btnExportarInfo);
+        }
+
+        document.body.appendChild(container);
+
+        btnVerFila.addEventListener('click', verFila);
+        btnApagarFila.addEventListener('click', apagarFila);
+
+        if (btnAdicionar.parentNode) {
+            btnAdicionar.addEventListener('click', adicionarPedidoAFila);
+        }
+        if (btnExportarInfo.parentNode) {
+            btnExportarInfo.addEventListener('click', exportarInfo);
+        }
+
+        console.log('Botões criados e adicionados à página.');
+    }
+
+    function adicionarPedidoAFila() {
+        try {
+            console.log('Botão "Adicionar à Fila" clicado. Tentando extrair os dados do pedido...');
+
+            const pedidoElemento = document.querySelector('[data-testid="plaque-caseno"]');
+            const dataElemento = document.querySelector('h5[title]');
+            const responsavelElemento = document.querySelector('input#applicant');
+            const usuarioElemento = document.querySelector('.HistoryItem_desc__L0rIZ h3');
+            const assuntoElemento = document.querySelector('input#subject');
+            const iframeSolucao = document.querySelector('.idEditor-commentary iframe[title="Editable area. Press Alt + F10 for toolbar."]');
+
+            if (pedidoElemento && dataElemento && responsavelElemento && usuarioElemento && assuntoElemento && iframeSolucao && iframeSolucao.contentDocument) {
+                const pedido = pedidoElemento.textContent.trim();
+                const data = dataElemento.title.trim();
+                const responsavel = responsavelElemento.value.trim();
+                const usuario = usuarioElemento.textContent.trim();
+                const assunto = assuntoElemento.value.trim();
+
+                const divSolucao = iframeSolucao.contentDocument.querySelector('div.k-content.ProseMirror');
+                const solucao = divSolucao ? divSolucao.textContent.trim() : '';
+
+                const dadosPedido = {
+                    pedido: pedido,
+                    data: data,
+                    responsavel: responsavel,
+                    usuario: usuario,
+                    assunto: assunto,
+                    solucao: solucao
+                };
+
+                const pedidosSalvos = GM_getValue(filaKey, []);
+                pedidosSalvos.push(dadosPedido);
+                GM_setValue(filaKey, pedidosSalvos);
+
+                alert(`O pedido ${dadosPedido.pedido} foi adicionado à fila. ${pedidosSalvos.length} pedidos na fila.`);
+                console.log(`Pedido adicionado:`, dadosPedido, `Fila atual:`, pedidosSalvos);
+            } else {
+                console.error('Não foi possível encontrar todos os elementos do pedido na página.');
+                alert('Não foi possível encontrar todos os dados do pedido na página. Verifique se o pedido está carregado.');
+            }
+        } catch (error) {
+            console.error("Ocorreu um erro ao tentar adicionar o pedido à fila: ", error);
+            alert('Ocorreu um erro. Verifique o console para mais detalhes.');
+        }
+    }
+
+    function verFila() {
+        const pedidosSalvos = GM_getValue(filaKey, []);
+
+        if (pedidosSalvos.length > 0) {
+            const listaPedidos = pedidosSalvos.map(item => `Pedido: ${item.pedido}\nData: ${item.data}\nResponsável: ${item.responsavel}\nUsuário: ${item.usuario}\nAssunto: ${item.assunto}\nSolução: ${item.solucao}`).join('\n\n');
+            alert(`Pedidos na fila:\n\n${listaPedidos}`);
+        } else {
+            alert('A fila está vazia.');
+        }
+        console.log('Conteúdo da fila exibido.');
+    }
+
+    function apagarFila() {
+        const pedidosSalvos = GM_getValue(filaKey, []);
+
+        if (pedidosSalvos.length > 0) {
+            if (confirm('Tem certeza que deseja remover o primeiro pedido da fila?')) {
+                pedidosSalvos.shift();
+                GM_setValue(filaKey, pedidosSalvos);
+                alert(`Primeiro pedido removido da fila. Restam ${pedidosSalvos.length} pedidos.`);
+                console.log('Primeiro pedido removido da fila.');
+            }
+        } else {
+            alert('A fila já está vazia. Nenhum pedido para remover.');
+        }
+    }
+
+    function exportarInfo() {
+        const pedidosSalvos = GM_getValue(filaKey, []);
+
+        if (pedidosSalvos.length === 0) {
+            alert('A fila está vazia. Adicione um pedido no site de origem primeiro.');
+            return;
+        }
+
+        const pedidoParaExportar = pedidosSalvos[0];
+
+
+        const iframes = document.querySelectorAll('iframe');
+        let iframeCabecalho = null;
+        let iframeTratativa = null;
+
+        iframes.forEach(iframe => {
+            if (iframe.contentDocument && iframe.contentDocument.title === 'cabeçalho demanda') {
+                iframeCabecalho = iframe;
+            }
+            if (iframe.contentDocument && iframe.contentDocument.title === 'Tratativa demanda') {
+                iframeTratativa = iframe;
+            }
+        });
+
+        let exportadoComSucesso = false;
+
+        if (iframeCabecalho && iframeCabecalho.contentDocument) {
+            const iframeDoc = iframeCabecalho.contentDocument;
+
+            const celulaID = iframeDoc.querySelectorAll('p.Tabela_Texto_Alinhado_Esquerda')[0];
+            const celulaDataHora = iframeDoc.querySelectorAll('p.Tabela_Texto_Alinhado_Esquerda')[1];
+            const celulaSolicitante = iframeDoc.querySelectorAll('p.Tabela_Texto_Alinhado_Esquerda')[2];
+            const celulaTecnico = iframeDoc.querySelectorAll('p.Tabela_Texto_Alinhado_Esquerda')[3];
+            const celulaResumo = iframeDoc.querySelectorAll('p.Tabela_Texto_Alinhado_Esquerda')[4];
+
+            if (celulaID) { celulaID.textContent = pedidoParaExportar.pedido; exportadoComSucesso = true; }
+            if (celulaDataHora) { celulaDataHora.textContent = pedidoParaExportar.data; exportadoComSucesso = true; }
+            if (celulaSolicitante) { celulaSolicitante.textContent = pedidoParaExportar.usuario; exportadoComSucesso = true; }
+            if (celulaTecnico) { celulaTecnico.textContent = pedidoParaExportar.responsavel; exportadoComSucesso = true; }
+            if (celulaResumo) { celulaResumo.textContent = pedidoParaExportar.assunto; exportadoComSucesso = true; }
+        } else {
+            console.error('Não foi possível encontrar o iframe do cabeçalho.');
+        }
+
+        if (iframeTratativa && iframeTratativa.contentDocument) {
+            const iframeDoc = iframeTratativa.contentDocument;
+
+            const celulaSolucao = iframeDoc.querySelector('p[data-pm-slice="1 1 []"]');
+            const celulaResponsavel = iframeDoc.querySelectorAll('p.Tabela_Texto_Centralizado')[1];
+
+            if (celulaSolucao) {
+                celulaSolucao.innerHTML = pedidoParaExportar.solucao;
+                exportadoComSucesso = true;
+            } else {
+                console.error('Não foi possível encontrar a célula de Solução no iframe de tratativa.');
+            }
+
+            if (celulaResponsavel) {
+                const strongTag = celulaResponsavel.querySelector('strong');
+                if (strongTag) {
+                    strongTag.textContent = pedidoParaExportar.responsavel;
+                    exportadoComSucesso = true;
+                } else {
+                    console.error('Não foi possível encontrar a tag <strong> dentro da célula do Responsável.');
+                }
+            } else {
+                console.error('Não foi possível encontrar a célula do Responsável no iframe de tratativa.');
+            }
+        } else {
+            console.error('Não foi possível encontrar o iframe da tratativa.');
+        }
+
+        if (exportadoComSucesso) {
+            pedidosSalvos.shift();
+            GM_setValue(filaKey, pedidosSalvos);
+
+            alert(`As informações do pedido (${pedidoParaExportar.pedido}) foram exportadas e retiradas da fila. Restam ${pedidosSalvos.length} pedidos.`);
+            console.log(`Informações do pedido (${pedidoParaExportar.pedido}) exportadas com sucesso e removidas da fila. Fila atual:`, pedidosSalvos);
+        } else {
+            alert('Não foi possível exportar as informações. Verifique o console para mais detalhes.');
+        }
+    }
+
+    function init() {
+        criarBotoes();
+
+        const currentUrl = window.location.href;
+        if (currentUrl.startsWith(urlITSM)) {
+            const iframeObserver = new MutationObserver((mutations, obs) => {
+                const iframeSolucao = document.querySelector('.idEditor-commentary iframe[title="Editable area. Press Alt + F10 for toolbar."]');
+                const divSolucao = iframeSolucao ? iframeSolucao.contentDocument.querySelector('div.k-content.ProseMirror') : null;
+
+                if (iframeSolucao && iframeSolucao.contentDocument && divSolucao) {
+                    console.log('Iframe de solução encontrado e carregado. Habilitando botão...');
+                    btnAdicionar.disabled = false;
+                    btnAdicionar.textContent = 'Adicionar à Fila';
+                    obs.disconnect();
+                }
+            });
+            iframeObserver.observe(document.body, { childList: true, subtree: true });
+        }
+    }
+
+    init();
+})();
